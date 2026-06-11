@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # --- 1. PostgreSQL Relational Database Engine ---
+  db:
+    image: postgres:15-alpine
+    container_name: url_shortener_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: url_shortener
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - url_shortener_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d url_shortener"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- 2. Redis High-Speed Caching Layer ---
+  redis:
+    image: redis:7-alpine
+    container_name: url_shortener_redis
+    restart: always
+    # Optimized memory management configurations passed inline
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy volatile-lru
+    ports:
+      - "6379:6379"
+    networks:
+      - url_shortener_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # --- 3. FastAPI Core Application Service ---
+  api:
+    build: .
+    container_name: url_shortener_api
+    restart: always
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@db:5432/url_shortener
+      - REDIS_URL=redis://redis:6379/0
+      - PROJECT_NAME=Zenith Links API
+      - BASE_URL=http://localhost
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - url_shortener_network
+
+  # --- 4. Nginx Reverse Proxy & Static Frontend Gateway ---
+  nginx:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM nginx:stable-alpine
+        RUN rm -rf /usr/share/nginx/html/*
+        COPY ./nginx/nginx.conf /etc/nginx/nginx.conf
+        COPY ./frontend /usr/share/nginx/html
+    container_name: url_shortener_gateway
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./frontend:/usr/share/nginx/html
+    depends_on:
+      - api
+    networks:
+      - url_shortener_network
+
+# --- Global Configurations ---
+volumes:
+  postgres_data:
+
+networks:
+  url_shortener_network:
+    driver: bridge

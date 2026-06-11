@@ -1,0 +1,17 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+
+# Local private environment configurations
+.env
+
+# Docker caches/data
+.docker/
+*.log
+
+# IDE settings
+.vscode/
+.idea/
